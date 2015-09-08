@@ -1,0 +1,2 @@
+dokuwiki==0.3.0
+llfuse==0.41.1
