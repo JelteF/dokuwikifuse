@@ -67,7 +67,7 @@ class WikiDir(WikiEntry):
         for p in pages:
             wiki_entry = WikiEntry(self.ops, p)
             print(wiki_entry)
-            self._children.append
+            self._children.append(wiki_entry)
         print(pages)
 
 
