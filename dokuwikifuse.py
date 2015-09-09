@@ -90,15 +90,17 @@ class WikiEntry(EntryAttributes):
         return self.parent.depth + 1
 
     @property
-    def location(self):
-        if self.inode == ROOT_INODE or self.parent.inode == ROOT_INODE:
-            return ''
-        return self.parent.path
+    def path(self):
+        return '/'.join(self.parents + [self.filename])
 
     @property
-    def path(self):
+    def parents(self):
+        if self.inode == ROOT_INODE or self.parent.inode == ROOT_INODE:
+            return ['']
+        return self.parent.parents + [self.parent.filename]
 
-        return self.location + '/' + self.filename
+    def update_modified(self):
+        self.modified = time.time()
 
 
 class WikiFile(WikiEntry):
@@ -128,11 +130,26 @@ class WikiFile(WikiEntry):
         return self._text
 
     def _refresh_text(self):
-        self._text = self.ops.dw.pages.get(self.name)
+        self._text = self.ops.dw.pages.get(self.pagename)
+
+    @text.setter
+    def text(self, value):
+        self._text = value
 
     @property
     def bytes(self):
         return self.text.encode('utf8')
+
+    @bytes.setter
+    def bytes(self, value):
+        print('setting bytes')
+        print(value)
+        self.text = value.decode('utf8')
+        self.st_size = len(value)
+
+    @property
+    def pagename(self):
+        return ':'.join(self.parents + [self.name])
 
 
 class WikiDir(WikiEntry):
@@ -146,7 +163,7 @@ class WikiDir(WikiEntry):
         self.st_mode |= stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH | \
             stat.S_IFDIR
 
-        self.modified = time.time()
+        self.update_modified()
 
     @property
     def children(self):
@@ -175,6 +192,7 @@ class WikiDir(WikiEntry):
             else:
                 p['id'] = path[-1]
                 wiki_entry = WikiFile(p, self.ops, self)
+            print(wiki_entry.name)
             print(wiki_entry)
             self._children[wiki_entry.filename] = wiki_entry
 
@@ -213,15 +231,14 @@ class Operations(BaseOperations, UserDict):
             try:
                 inode = parent.children[name].inode
                 print('found')
-            except:
+            except KeyError:
                 print('not found')
                 raise FUSEError(errno.ENOENT)
 
         return self.getattr(inode)
 
     def access(self, inode, mode, ctx):
-        print('access')
-        print(inode)
+        print('access', self[inode])
         return True
 
     def opendir(self, inode):
@@ -243,10 +260,10 @@ class Operations(BaseOperations, UserDict):
         entries = entries[off:]
         return entries
 
-    def open(self, inode, flags):
-        print('open')
-        print(inode)
+    def open(self, inode, mode):
+        print('open', self[inode], stat.filemode(mode), mode)
         # TODO: Keep track of amount of times open
+        print(inode)
         return inode
 
     def read(self, inode, offset, length):
@@ -254,11 +271,118 @@ class Operations(BaseOperations, UserDict):
         print(inode, offset, length)
         return self[inode].bytes[offset: offset + length]
 
+    def write(self, inode, offset, buf):
+        file = self[inode]
+        print('write', file)
+        original = file.bytes
+        new = original[:offset] + buf + original[offset + len(buf):]
+        file.bytes = new
+        file.update_modified()
+        return len(buf)
+
+    def create(self, parent_inode, name, mode, flags, ctx):
+        print('create')
+        parent = self[parent_inode]
+        # TODO: Add lots of checks here
+        try:
+            entry = parent.children[name]
+            print('found')
+        except KeyError:
+            print('not found')
+            raise FUSEError(errno.EINVAL)
+        return (entry.inode, entry)
+
+"""
+    def release(self, inode):
+        print('release')
+        pass
+
+    def releasedir(self, inode):
+        print('releasedir')
+        pass
+
+    def rmdir(self, inode):
+        print('rmdir')
+        pass
+
+    def forget(self, *args, **kwargs):
+        print('forget')
+        pass
+
+    def rename(self, *args, **kwargs):
+        print('rename')
+        pass
+
+    def rename(self, *args, **kwargs):
+        print('rename')
+        pass
+
+    def rename(self, *args, **kwargs):
+        print('rename')
+        pass
+
+    def destroy(self, *args, **kwargs):
+        print('destroy')
+        pass
+
+    def link(self, *args, **kwargs):
+        print('link')
+        pass
+
+    def mkdir(self, *args, **kwargs):
+        print('mkdir')
+        pass
+
+    def mknod(self, *args, **kwargs):
+        print('mknod')
+        pass
+
+    def readlink(self, *args, **kwargs):
+        print('readlink')
+        pass
+
+    def removexattr(self, *args, **kwargs):
+        print('removexattr')
+        pass
+
+    def getexttr(self, *args, **kwargs):
+        print('getexattr')
+        pass
+
+    def fsync(self, *args, **kwargs):
+        print('fsync')
+        pass
+
+    def fsyncdir(self, *args, **kwargs):
+        print('fsyncdir')
+        pass
+
+    def listxattr(self, *args, **kwargs):
+        print('listxattr')
+        pass
+
+    def setxattr(self, *args, **kwargs):
+        print('setxattr')
+        pass
+
+    def statfs(self, *args, **kwargs):
+        print('statfs')
+        pass
+
+    def symlink(self, *args, **kwargs):
+        print('symlink')
+        pass
+
+    def unlink(self, *args, **kwargs):
+        print('unlink')
+        pass
+"""
+
 
 if __name__ == '__main__':
-
     try:
-        llfuse.init(Operations(), Config.mountpoint, ['nonempty'])
+        llfuse.init(Operations(), Config.mountpoint, ['nonempty',
+                                                      'fsname=tmpfs'])
     except:
         llfuse.close()
         raise
