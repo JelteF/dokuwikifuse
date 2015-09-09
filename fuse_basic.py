@@ -258,7 +258,7 @@ class Operations(BaseOperations, UserDict):
 if __name__ == '__main__':
 
     try:
-        llfuse.init(Operations(), 'wiki', [])
+        llfuse.init(Operations(), Config.mountpoint, ['nonempty'])
     except:
         llfuse.close()
         raise
