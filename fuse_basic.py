@@ -10,25 +10,25 @@ import stat
 
 from os import fsencode, fsdecode
 from collections import UserDict
+from uuid import uuid4
+import time
+
 from pprint import pprint  # noqa
 
 
 class WikiEntry(EntryAttributes):
-    def __init__(self, ops, wiki_data=None):
+    def __init__(self, ops, parent, *, inode=None):
         super().__init__()
 
-        if wiki_data is not None:
-            self.inode = wiki_data['rev']
-            self.name = wiki_data['id']
+        if inode is None:
+            print('going to generate a unique inode number')
+            inode = uuid4().int & (1 << 32)-1
+            while inode in ops:
+                inode = uuid4().int & (1 << 32)-1
 
-            for attr in ['st_atime', 'st_ctime', 'st_mtime']:
-                setattr(self, attr, wiki_data['mtime'])
-
-            self.st_size = wiki_data['size']
-
-        else:
-            self.inode = ROOT_INODE
-            self.name = ''
+        self.inode = inode
+        print('inode is', self.inode)
+        self.parent = parent
 
         self.st_uid = os.getuid()
         self.st_gid = os.getgid()
@@ -42,7 +42,7 @@ class WikiEntry(EntryAttributes):
 
     def __repr__(self):
         string = '<%s(' % self.__class__.__name__
-        for i, attr in enumerate(['inode', 'filename']):
+        for i, attr in enumerate(['inode', 'path']):
             if i:
                 string += ', '
             string += repr(getattr(self, attr))
@@ -67,12 +67,47 @@ class WikiEntry(EntryAttributes):
     def inode(self, value):
         self.st_ino = value
 
+    @property
+    def modified(self):
+        return self.st_mtime
+
+    @modified.setter
+    def modified(self, value):
+        self.st_atime = value
+        self.st_ctime = value
+        self.st_mtime = value
+
+    @property
+    def depth(self):
+        if self.inode == ROOT_INODE:
+            return 0
+        return self.parent.depth + 1
+
+    @property
+    def location(self):
+        if self.inode == ROOT_INODE or self.parent.inode == ROOT_INODE:
+            return ''
+        return self.parent.path
+
+    @property
+    def path(self):
+
+        return self.location + '/' + self.filename
+
 
 class WikiFile(WikiEntry):
     _text = None
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, wiki_data, *args, **kwargs):
+        self.name = wiki_data['id']
+        print('Creating a file called: ' + self.name)
+
         super().__init__(*args, **kwargs)
+
+        self.modified = wiki_data['mtime']
+
+        self.st_size = wiki_data['size']
+
         # mode = drwxr-xr-x
         self.st_mode |= stat.S_IFREG
 
@@ -97,11 +132,15 @@ class WikiFile(WikiEntry):
 class WikiDir(WikiEntry):
     _children = None
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, name, *args, **kwargs):
+        print('Creating a directory called: ' + name)
+        self.name = name
         super().__init__(*args, **kwargs)
         # mode = drwxr-xr-x
-        self.st_mode |= stat.S_IFDIR | stat.S_IXUSR | stat.S_IXGRP | \
-            stat.S_IXOTH
+        self.st_mode |= stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH | \
+            stat.S_IFDIR
+
+        self.modified = time.time()
 
     @property
     def children(self):
@@ -110,13 +149,27 @@ class WikiDir(WikiEntry):
         return self._children
 
     def _refresh_children(self):
-        pages = self.ops.dw.pages.list(depth=1)
+        print('Refreshing children of ' + str(self))
+        pages = self.ops.dw.pages.list(self.path, depth=2)
         self._children = {}
+        print('depth = ', self.depth)
+
         for p in pages:
-            wiki_entry = WikiFile(self.ops, p)
+            path = p['id'].split(':')[self.depth:-1]
+            if path:
+                dir_name = path[-1]
+                print('Checking of directory ' + dir_name + ' already exists')
+                if dir_name + '.doku' in self._children:
+                    print('already exists')
+                    continue
+
+                print('Didn\'t exist yet')
+                wiki_entry = WikiDir(dir_name, self.ops, self)
+
+            else:
+                wiki_entry = WikiFile(p, self.ops, self)
             print(wiki_entry)
             self._children[wiki_entry.filename] = wiki_entry
-        print(pages)
 
 
 class Operations(BaseOperations, UserDict):
@@ -126,7 +179,7 @@ class Operations(BaseOperations, UserDict):
         self.dw = DokuWiki('https://os3.nl', '', '')
 
         self.data = {}
-        WikiDir(self)
+        WikiDir('', self, None, inode=ROOT_INODE)
 
     def getattr(self, inode):
         print('trying to find inode: ' + str(inode))
@@ -146,9 +199,10 @@ class Operations(BaseOperations, UserDict):
             inode = parent_inode
         elif name == '..':
             inode = ROOT_INODE
+        elif name.startswith('.'):
+            raise FUSEError(errno.ENOENT)
         else:
             parent = self[parent_inode]
-            pprint(parent.children)
             try:
                 inode = parent.children[name].inode
                 print('found')
@@ -173,10 +227,14 @@ class Operations(BaseOperations, UserDict):
         # pages = self.dw.pages.list(depth=1)
         # print(pages)
         wiki_dir = self[inode]
+        print(wiki_dir)
         wiki_dir.children
-        # entries = [(fsencode('.'), self.getattr(inode), inode)]
+        special_entries = [(fsencode('.'), self.getattr(inode), inode)]
         entries = [c.to_readdir_format() for c in wiki_dir.children.values()]
-        return entries[off:]
+        entries += special_entries
+        entries = sorted(entries)
+        entries = entries[off:]
+        return entries
 
     def open(self, inode, flags):
         print('open')
@@ -191,16 +249,15 @@ class Operations(BaseOperations, UserDict):
 
 
 if __name__ == '__main__':
-    ops = Operations()
 
     try:
-        llfuse.init(ops, 'wiki', [])
+        llfuse.init(Operations(), 'wiki', [])
     except:
         llfuse.close()
         raise
 
     try:
-        llfuse.main()
+        llfuse.main(single=True)
     except:
         llfuse.close()
         raise
