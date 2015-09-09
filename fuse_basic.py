@@ -13,6 +13,12 @@ from collections import UserDict
 from uuid import uuid4
 import time
 
+
+try:
+    from config import Config
+except:
+    from default_config import DefaultConfig as Config
+
 from pprint import pprint  # noqa
 
 
@@ -150,14 +156,14 @@ class WikiDir(WikiEntry):
 
     def _refresh_children(self):
         print('Refreshing children of ' + str(self))
-        pages = self.ops.dw.pages.list(self.path, depth=2)
+        pages = self.ops.dw.pages.list(self.path, depth=self.depth + 2)
         self._children = {}
         print('depth = ', self.depth)
 
         for p in pages:
-            path = p['id'].split(':')[self.depth:-1]
-            if path:
-                dir_name = path[-1]
+            path = p['id'].split(':')[self.depth:]
+            if len(path) > 1:
+                dir_name = path[0]
                 print('Checking of directory ' + dir_name + ' already exists')
                 if dir_name + '.doku' in self._children:
                     print('already exists')
@@ -167,6 +173,7 @@ class WikiDir(WikiEntry):
                 wiki_entry = WikiDir(dir_name, self.ops, self)
 
             else:
+                p['id'] = path[-1]
                 wiki_entry = WikiFile(p, self.ops, self)
             print(wiki_entry)
             self._children[wiki_entry.filename] = wiki_entry
@@ -176,7 +183,7 @@ class Operations(BaseOperations, UserDict):
     def __init__(self, *args, **kwargs):
         super().__init__()
 
-        self.dw = DokuWiki('https://os3.nl', '', '')
+        self.dw = DokuWiki(Config.url, Config.user, Config.password)
 
         self.data = {}
         WikiDir('', self, None, inode=ROOT_INODE)
@@ -194,7 +201,7 @@ class Operations(BaseOperations, UserDict):
     def lookup(self, parent_inode, name):
         print('lookup')
         name = fsdecode(name)
-        print(name)
+        print(name, self[parent_inode])
         if name == '.':
             inode = parent_inode
         elif name == '..':

@@ -1,6 +1,12 @@
 # Virtualenv
 venv
 
+# Ignore the wiki directory
+wiki
+
+# Ignore custom config file
+config.py
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
