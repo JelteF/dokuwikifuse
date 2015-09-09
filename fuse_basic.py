@@ -8,45 +8,90 @@ import errno
 import os
 import stat
 
-from os import fsencode
+from os import fsencode, fsdecode
 from collections import UserDict
+from pprint import pprint  # noqa
 
 
-class WikiEntry:
+class WikiEntry(EntryAttributes):
     def __init__(self, ops, wiki_data=None):
-        self.entry = EntryAttributes()
+        super().__init__()
 
         if wiki_data is not None:
             self.inode = wiki_data['rev']
-            self.path = '/' + wiki_data['id']
+            self.name = wiki_data['id']
+
+            for attr in ['st_atime', 'st_ctime', 'st_mtime']:
+                setattr(self, attr, wiki_data['mtime'])
+
+            self.st_size = wiki_data['size']
+
         else:
             self.inode = ROOT_INODE
-            self.path = '/'
+            self.name = ''
 
-        self.entry.st_ino = self.inode
-        self.entry.st_uid = os.getuid()
-        self.entry.st_gid = os.getgid()
+        self.st_uid = os.getuid()
+        self.st_gid = os.getgid()
 
-        # mode = drwxr-xr-x
-        self.entry.st_mode = stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | \
-            stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | \
-            stat.S_IXOTH
+        # mode = -rw-r--r--
+        self.st_mode = stat.S_IRUSR | stat.S_IWUSR | \
+            stat.S_IRGRP | stat.S_IROTH
 
         self.ops = ops
-        self.ops[self.entry.st_ino] = self
+        self.ops[self.inode] = self
 
     def __repr__(self):
         string = '<%s(' % self.__class__.__name__
-        for i, attr in enumerate(['inode', 'path']):
+        for i, attr in enumerate(['inode', 'filename']):
             if i:
                 string += ', '
             string += repr(getattr(self, attr))
+        string += ', '
+        string += stat.filemode(self.st_mode)
 
         string += ')>'
         return string
 
     def to_readdir_format(self):
-        return fsencode(self.path), self.entry, self.inode
+        return fsencode(self.filename), self, self.inode
+
+    @property
+    def filename(self):
+        return self.name
+
+    @property
+    def inode(self):
+        return self.st_ino
+
+    @inode.setter
+    def inode(self, value):
+        self.st_ino = value
+
+
+class WikiFile(WikiEntry):
+    _text = None
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # mode = drwxr-xr-x
+        self.st_mode |= stat.S_IFREG
+
+    @property
+    def filename(self):
+        return self.name + '.doku'
+
+    @property
+    def text(self):
+        if self._text is None:
+            self._refresh_text()
+        return self._text
+
+    def _refresh_text(self):
+        self._text = self.ops.dw.pages.get(self.name)
+
+    @property
+    def bytes(self):
+        return self.text.encode('utf8')
 
 
 class WikiDir(WikiEntry):
@@ -54,6 +99,9 @@ class WikiDir(WikiEntry):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # mode = drwxr-xr-x
+        self.st_mode |= stat.S_IFDIR | stat.S_IXUSR | stat.S_IXGRP | \
+            stat.S_IXOTH
 
     @property
     def children(self):
@@ -63,11 +111,11 @@ class WikiDir(WikiEntry):
 
     def _refresh_children(self):
         pages = self.ops.dw.pages.list(depth=1)
-        self._children = []
+        self._children = {}
         for p in pages:
-            wiki_entry = WikiEntry(self.ops, p)
+            wiki_entry = WikiFile(self.ops, p)
             print(wiki_entry)
-            self._children.append(wiki_entry)
+            self._children[wiki_entry.filename] = wiki_entry
         print(pages)
 
 
@@ -83,7 +131,7 @@ class Operations(BaseOperations, UserDict):
     def getattr(self, inode):
         print('trying to find inode: ' + str(inode))
         try:
-            entry = self[inode].entry
+            entry = self[inode]
             print('found it: ', entry)
             return entry
         except KeyError:
@@ -92,13 +140,21 @@ class Operations(BaseOperations, UserDict):
 
     def lookup(self, parent_inode, name):
         print('lookup')
-        print(parent_inode, name)
+        name = fsdecode(name)
+        print(name)
         if name == '.':
             inode = parent_inode
         elif name == '..':
             inode = ROOT_INODE
         else:
-            raise FUSEError(errno.ENOENT)
+            parent = self[parent_inode]
+            pprint(parent.children)
+            try:
+                inode = parent.children[name].inode
+                print('found')
+            except:
+                print('not found')
+                raise FUSEError(errno.ENOENT)
 
         return self.getattr(inode)
 
@@ -117,13 +173,21 @@ class Operations(BaseOperations, UserDict):
         # pages = self.dw.pages.list(depth=1)
         # print(pages)
         wiki_dir = self[inode]
-        print(wiki_dir)
         wiki_dir.children
         # entries = [(fsencode('.'), self.getattr(inode), inode)]
-        entries = [c.to_readdir_format() for c in wiki_dir.children]
-        print(entries)
-        print(wiki_dir.children)
+        entries = [c.to_readdir_format() for c in wiki_dir.children.values()]
         return entries[off:]
+
+    def open(self, inode, flags):
+        print('open')
+        print(inode)
+        # TODO: Keep track of amount of times open
+        return inode
+
+    def read(self, inode, offset, length):
+        print('read')
+        print(inode, offset, length)
+        return self[inode].bytes[offset: offset + length]
 
 
 if __name__ == '__main__':
