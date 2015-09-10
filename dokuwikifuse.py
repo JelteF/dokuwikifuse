@@ -216,6 +216,19 @@ class Operations(BaseOperations, UserDict):
             print('Didn\'t find it :(')
             raise FUSEError(errno.ENOENT)
 
+    def setattr(self, inode, attr, fields):
+        entry = self.getattr(inode)
+        print(fields)
+        if fields.update_size:
+            if entry.st_size < attr.st_size:
+                entry.bytes = + b'\0' * (attr.st_size - entry.st_size)
+            else:
+                entry.bytes = entry.bytes[:attr.st_size]
+
+        else:
+            raise FUSEError(errno.ENOENT)
+        return entry
+
     def lookup(self, parent_inode, name):
         print('lookup')
         name = fsdecode(name)
