@@ -23,6 +23,8 @@ from pprint import pprint  # noqa
 
 
 class WikiEntry(EntryAttributes):
+    _prints = ('inode', 'path')
+
     def __init__(self, ops, parent, *, inode=None):
         super().__init__()
 
@@ -48,7 +50,8 @@ class WikiEntry(EntryAttributes):
 
     def __repr__(self):
         string = '<%s(' % self.__class__.__name__
-        for i, attr in enumerate(['inode', 'path']):
+        print(self._prints)
+        for i, attr in enumerate(self._prints):
             if i:
                 string += ', '
             string += repr(getattr(self, attr))
@@ -105,6 +108,7 @@ class WikiEntry(EntryAttributes):
 
 class WikiFile(WikiEntry):
     _text = None
+    _prints = WikiEntry._prints + ('pagename',)
 
     def __init__(self, wiki_data, *args, **kwargs):
         self.name = wiki_data['id']
@@ -150,6 +154,9 @@ class WikiFile(WikiEntry):
     @property
     def pagename(self):
         return ':'.join(self.parents + [self.name])
+
+    def save(self):
+        self.ops.dw.pages.set(self.pagename, self.text)
 
 
 class WikiDir(WikiEntry):
@@ -291,6 +298,7 @@ class Operations(BaseOperations, UserDict):
         new = original[:offset] + buf + original[offset + len(buf):]
         file.bytes = new
         file.update_modified()
+        file.save()
         return len(buf)
 
     def create(self, parent_inode, name, mode, flags, ctx):
