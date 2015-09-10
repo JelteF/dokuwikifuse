@@ -1,2 +1,2 @@
--e git+git@github.com:JelteF/python-dokuwiki@9b164eac46fe09edb544f27fe730fb4e15aba089#egg=dokuwiki-master
+-e git+https://github.com/JelteF/python-dokuwiki@9b164eac46fe09edb544f27fe730fb4e15aba089#egg=dokuwiki-master
 llfuse==0.41.1
