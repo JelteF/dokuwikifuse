@@ -328,6 +328,16 @@ class Operations(BaseOperations, UserDict):
 
         return (entry.inode, entry)
 
+    def unlink(self, parent_inode, name):
+        '''File removal'''
+        print('unlink')
+        name = fsdecode(name)
+        parent = self[parent_inode]
+
+        entry = parent.children[name]
+        entry.delete()
+
+'''
     def release(self, inode):
         print('release')
         pass
@@ -407,16 +417,7 @@ class Operations(BaseOperations, UserDict):
     def symlink(self, *args, **kwargs):
         print('symlink')
         pass
-
-    def unlink(self, parent_inode, name):
-        '''File removal'''
-        print('unlink')
-        name = fsdecode(name)
-        parent = self[parent_inode]
-
-        entry = parent.children[name]
-        entry.delete()
-
+'''
 
 
 if __name__ == '__main__':
