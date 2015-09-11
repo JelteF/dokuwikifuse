@@ -167,7 +167,10 @@ class WikiFile(WikiEntry):
         self.ops.dw.pages.set(self.pagename, self.text)
 
     def delete(self):
-        self.ops.dw.pages.delete(self.pagename)
+        if len(self.text):
+            # Don't delete files that are already empty, since a removed page
+            # is just an empty page in dokuwiki
+            self.ops.dw.pages.delete(self.pagename)
         del self.parent._children[self.filename]
 
 
