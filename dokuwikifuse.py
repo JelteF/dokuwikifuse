@@ -166,6 +166,11 @@ class WikiFile(WikiEntry):
     def save(self):
         self.ops.dw.pages.set(self.pagename, self.text)
 
+    def delete(self):
+        self.ops.dw.pages.delete(self.pagename)
+        del self.parent._children[self.filename]
+
+
 
 class WikiDir(WikiEntry):
     _children = None
@@ -320,7 +325,6 @@ class Operations(BaseOperations, UserDict):
 
         return (entry.inode, entry)
 
-"""
     def release(self, inode):
         print('release')
         pass
@@ -401,10 +405,15 @@ class Operations(BaseOperations, UserDict):
         print('symlink')
         pass
 
-    def unlink(self, *args, **kwargs):
+    def unlink(self, parent_inode, name):
+        '''File removal'''
         print('unlink')
-        pass
-"""
+        name = fsdecode(name)
+        parent = self[parent_inode]
+
+        entry = parent.children[name]
+        entry.delete()
+
 
 
 if __name__ == '__main__':

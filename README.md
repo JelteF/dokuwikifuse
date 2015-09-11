@@ -60,6 +60,6 @@ fusermount -u wiki
 - [ ] Submit only once when consecutive writes occur
 - [ ] File and directory syncing after initial sync
 - [x] Creating of documents
-- [ ] Removing of documents
+- [x] Removing of documents
 - [ ] Renaming of directories
 - [ ] Attachement support
