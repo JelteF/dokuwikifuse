@@ -174,7 +174,6 @@ class WikiFile(WikiEntry):
         del self.parent._children[self.filename]
 
 
-
 class WikiDir(WikiEntry):
     _children = None
 
@@ -210,11 +209,11 @@ class WikiDir(WikiEntry):
                     continue
 
                 print('Didn\'t exist yet')
-                wiki_entry = WikiDir(dir_name, self.ops, self)
+                WikiDir(dir_name, self.ops, self)
 
             else:
                 p['id'] = path[-1]
-                wiki_entry = WikiFile.from_wiki_data(p, self.ops, self)
+                WikiFile.from_wiki_data(p, self.ops, self)
 
 
 class Operations(BaseOperations, UserDict):
