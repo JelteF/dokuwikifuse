@@ -36,7 +36,10 @@ class WikiEntry(EntryAttributes):
 
         self.inode = inode
         print('inode is', self.inode)
+
         self.parent = parent
+        if parent:
+            parent._children[self.filename] = self
 
         self.st_uid = os.getuid()
         self.st_gid = os.getgid()
@@ -110,18 +113,23 @@ class WikiFile(WikiEntry):
     _text = None
     _prints = WikiEntry._prints + ('pagename',)
 
-    def __init__(self, wiki_data, *args, **kwargs):
-        self.name = wiki_data['id']
-        print('Creating a file called: ' + self.name)
-
+    def __init__(self, name, *args, **kwargs):
+        print('Creating a file called: ' + name)
+        self.name = name
         super().__init__(*args, **kwargs)
+        self.update_modified()
+        self.st_size = 0
+
+        self.st_mode |= stat.S_IFREG
+
+    @classmethod
+    def from_wiki_data(cls, wiki_data, *args, **kwargs):
+        self = cls(wiki_data['id'], *args, **kwargs)
 
         self.modified = wiki_data['mtime']
 
         self.st_size = wiki_data['size']
-
-        # mode = drwxr-xr-x
-        self.st_mode |= stat.S_IFREG
+        return self
 
     @property
     def filename(self):
@@ -198,10 +206,7 @@ class WikiDir(WikiEntry):
 
             else:
                 p['id'] = path[-1]
-                wiki_entry = WikiFile(p, self.ops, self)
-            print(wiki_entry.name)
-            print(wiki_entry)
-            self._children[wiki_entry.filename] = wiki_entry
+                wiki_entry = WikiFile.from_wiki_data(p, self.ops, self)
 
 
 class Operations(BaseOperations, UserDict):
@@ -231,8 +236,7 @@ class Operations(BaseOperations, UserDict):
                 entry.bytes = + b'\0' * (attrs.st_size - entry.st_size)
             else:
                 entry.bytes = entry.bytes[:attrs.st_size]
-        else:
-            raise FUSEError(errno.ENOENT)
+
         return entry
 
     def lookup(self, parent_inode, name):
@@ -304,12 +308,16 @@ class Operations(BaseOperations, UserDict):
         print('create')
         parent = self[parent_inode]
         # TODO: Add lots of checks here
-        try:
-            entry = parent.children[name]
-            print('found')
-        except KeyError:
-            print('not found')
-            raise FUSEError(errno.EINVAL)
+        name = fsdecode(name)
+        if not name.endswith('.doku'):
+            # Raise read only filesystem error when writing non doku files
+            raise FUSEError(errno.EROFS)
+        elif name in parent.children:
+            raise FUSEError(errno.EEXIST)
+
+        name = name[:-5]  # Remove .doku extension from filename
+        entry = WikiFile(name, self, parent)
+
         return (entry.inode, entry)
 
 """

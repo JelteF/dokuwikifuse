@@ -56,10 +56,10 @@ fusermount -u wiki
 ## Goals
 - [x] Read support
 - [x] Login support
-- [x] Write upport
-- [ ] Writing
+- [x] Write support
+- [ ] Submit only once when consecutive writes occur
 - [ ] File and directory syncing after initial sync
-- [ ] Creating of documents
+- [x] Creating of documents
 - [ ] Removing of documents
 - [ ] Renaming of directories
 - [ ] Attachement support
