@@ -13,13 +13,15 @@ from collections import UserDict
 from uuid import uuid4
 import time
 
+from pprint import pprint  # noqa
 
 try:
     from config import Config
 except:
     from default_config import DefaultConfig as Config
 
-from pprint import pprint  # noqa
+if not Config.chroot.endswith('/'):
+    Config.chroot += '/'
 
 
 class WikiEntry(EntryAttributes):
@@ -92,7 +94,7 @@ class WikiEntry(EntryAttributes):
     @property
     def depth(self):
         if self.inode == ROOT_INODE:
-            return 0
+            return len(Config.chroot.split('/')) - 2
         return self.parent.depth + 1
 
     @property
@@ -102,7 +104,8 @@ class WikiEntry(EntryAttributes):
     @property
     def parents(self):
         if self.inode == ROOT_INODE or self.parent.inode == ROOT_INODE:
-            return ['']
+            # Ignore the last empty string when splitting
+            return Config.chroot.split('/')[:-1]
         return self.parent.parents + [self.parent.filename]
 
     def update_modified(self):

@@ -3,3 +3,4 @@ class DefaultConfig:
     user = ''
     password = ''
     mountpoint = 'wiki'
+    chroot = '/'
