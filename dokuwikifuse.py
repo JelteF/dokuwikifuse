@@ -12,6 +12,7 @@ from os import fsencode, fsdecode
 from collections import UserDict
 from uuid import uuid4
 import time
+import logging
 
 from pprint import pprint  # noqa
 
@@ -23,6 +24,7 @@ except:
 if not Config.chroot.endswith('/'):
     Config.chroot += '/'
 
+logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 
 class WikiEntry(EntryAttributes):
     _prints = ('inode', 'path')
@@ -114,7 +116,7 @@ class WikiFile(WikiEntry):
     _prints = WikiEntry._prints + ('pagename',)
 
     def __init__(self, name, *args, **kwargs):
-        print('Creating a file called: ' + name)
+        logging.info('Creating a file called: ' + name)
         self.name = name
         super().__init__(*args, **kwargs)
         self.update_modified()
@@ -154,8 +156,8 @@ class WikiFile(WikiEntry):
 
     @bytes.setter
     def bytes(self, value):
-        print('setting bytes')
-        print(value)
+        logging.info('setting bytes')
+        logging.info(value)
         self.text = value.decode('utf8')
         self.st_size = len(value)
 
@@ -178,7 +180,7 @@ class WikiDir(WikiEntry):
     _children = None
 
     def __init__(self, name, *args, **kwargs):
-        print('Creating a directory called: ' + name)
+        logging.info('Creating a directory called: ' + name)
         self.name = name
         super().__init__(*args, **kwargs)
         # mode = drwxr-xr-x
@@ -194,21 +196,16 @@ class WikiDir(WikiEntry):
         return self._children
 
     def _refresh_children(self):
-        print('Refreshing children of ' + str(self))
         pages = self.ops.dw.pages.list(self.path, depth=self.depth + 2)
         self._children = {}
-        print('depth = ', self.depth)
 
         for p in pages:
             path = p['id'].split(':')[self.depth:]
             if len(path) > 1:
                 dir_name = path[0]
-                print('Checking of directory ' + dir_name + ' already exists')
-                if dir_name + '.doku' in self._children:
-                    print('already exists')
+                if dir_name in self._children:
                     continue
 
-                print('Didn\'t exist yet')
                 WikiDir(dir_name, self.ops, self)
 
             else:
@@ -233,8 +230,8 @@ class Operations(BaseOperations, UserDict):
             raise FUSEError(errno.ENOENT)
 
     def setattr(self, inode, attr, fields, fh, ctx=None):
+        logging.debug('setattr', inode, attr, fields)
         entry = self.getattr(inode)
-        print(attr.st_size)
         if fields.update_size:
             if entry.st_size < attr.st_size:
                 entry.bytes = + b'\0' * (attr.st_size - entry.st_size)
@@ -244,9 +241,8 @@ class Operations(BaseOperations, UserDict):
         return entry
 
     def lookup(self, parent_inode, name, ctx=None):
-        print('lookup')
+        logging.debug('lookup')
         name = fsdecode(name)
-        print(name, self[parent_inode])
         if name == '.':
             inode = parent_inode
         elif name == '..':
@@ -257,28 +253,24 @@ class Operations(BaseOperations, UserDict):
             parent = self[parent_inode]
             try:
                 inode = parent.children[name].inode
-                print('found')
             except KeyError:
-                print('not found')
                 raise FUSEError(errno.ENOENT)
 
         return self.getattr(inode)
 
     def access(self, inode, mode, ctx=None):
-        print('access', self[inode])
+        logging.debug('access', self[inode])
         return True
 
     def opendir(self, inode, ctx=None):
-        print('opendir')
-        print(inode)
+        logging.debug('opendir', inode)
         return inode
 
     def readdir(self, inode, off):
-        print('readdir', inode, off)
+        logging.debug('readdir', inode, off)
         # pages = self.dw.pages.list(depth=1)
         # print(pages)
         wiki_dir = self[inode]
-        print(wiki_dir)
         wiki_dir.children
         special_entries = [(fsencode('.'), self.getattr(inode), inode)]
         entries = [c.to_readdir_format() for c in wiki_dir.children.values()]
@@ -288,19 +280,17 @@ class Operations(BaseOperations, UserDict):
         return entries
 
     def open(self, inode, mode, ctx=None):
-        print('open', self[inode], stat.filemode(mode), mode)
+        logging.debug('open', self[inode], stat.filemode(mode), mode)
         # TODO: Keep track of amount of times open
-        print(inode)
         return inode
 
     def read(self, inode, offset, length):
-        print('read')
-        print(inode, offset, length)
+        logging.debug('read', inode, offset, length)
         return self[inode].bytes[offset: offset + length]
 
     def write(self, inode, offset, buf):
         file = self[inode]
-        print('write', file)
+        logging.debug('write', file)
         original = file.bytes
         new = original[:offset] + buf + original[offset + len(buf):]
         file.bytes = new
@@ -309,7 +299,7 @@ class Operations(BaseOperations, UserDict):
         return len(buf)
 
     def create(self, parent_inode, name, mode, flags, ctx=None):
-        print('create')
+        logging.debug('create')
         parent = self[parent_inode]
         # TODO: Add lots of checks here
         name = fsdecode(name)
@@ -326,7 +316,7 @@ class Operations(BaseOperations, UserDict):
 
     def unlink(self, parent_inode, name, ctx=None):
         '''File removal'''
-        print('unlink')
+        logging.debug('unlink')
         name = fsdecode(name)
         parent = self[parent_inode]
 
@@ -334,84 +324,84 @@ class Operations(BaseOperations, UserDict):
         entry.delete()
 
     def mkdir(self, parent_inode, name, mode, ctx):
-        print('mkdir')
+        logging.debug('mkdir')
         return WikiDir(name.decode(), self, self[parent_inode])
 
 '''
     def release(self, inode):
-        print('release')
+        logging.debug('release')
         pass
 
     def releasedir(self, inode):
-        print('releasedir')
+        logging.debug('releasedir')
         pass
 
     def rmdir(self, inode):
-        print('rmdir')
+        logging.debug('rmdir')
         pass
 
     def forget(self, *args, **kwargs):
-        print('forget')
+        logging.debug('forget')
         pass
 
     def rename(self, *args, **kwargs):
-        print('rename')
+        logging.debug('rename')
         pass
 
     def rename(self, *args, **kwargs):
-        print('rename')
+        logging.debug('rename')
         pass
 
     def rename(self, *args, **kwargs):
-        print('rename')
+        logging.debug('rename')
         pass
 
     def destroy(self, *args, **kwargs):
-        print('destroy')
+        logging.debug('destroy')
         pass
 
     def link(self, *args, **kwargs):
-        print('link')
+        logging.debug('link')
         pass
 
     def mknod(self, *args, **kwargs):
-        print('mknod')
+        logging.debug('mknod')
         pass
 
     def readlink(self, *args, **kwargs):
-        print('readlink')
+        logging.debug('readlink')
         pass
 
     def removexattr(self, *args, **kwargs):
-        print('removexattr')
+        logging.debug('removexattr')
         pass
 
     def getexttr(self, *args, **kwargs):
-        print('getexattr')
+        logging.debug('getexattr')
         pass
 
     def fsync(self, *args, **kwargs):
-        print('fsync')
+        logging.debug('fsync')
         pass
 
     def fsyncdir(self, *args, **kwargs):
-        print('fsyncdir')
+        logging.debug('fsyncdir')
         pass
 
     def listxattr(self, *args, **kwargs):
-        print('listxattr')
+        logging.debug('listxattr')
         pass
 
     def setxattr(self, *args, **kwargs):
-        print('setxattr')
+        logging.debug('setxattr')
         pass
 
     def statfs(self, *args, **kwargs):
-        print('statfs')
+        logging.debug('statfs')
         pass
 
     def symlink(self, *args, **kwargs):
-        print('symlink')
+        logging.debug('symlink')
         pass
 '''
 
