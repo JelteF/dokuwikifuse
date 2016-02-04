@@ -31,13 +31,11 @@ class WikiEntry(EntryAttributes):
         super().__init__()
 
         if inode is None:
-            print('going to generate a unique inode number')
             inode = uuid4().int & (1 << 32)-1
             while inode in ops:
                 inode = uuid4().int & (1 << 32)-1
 
         self.inode = inode
-        print('inode is', self.inode)
 
         self.parent = parent
         if parent:
@@ -55,7 +53,6 @@ class WikiEntry(EntryAttributes):
 
     def __repr__(self):
         string = '<%s(' % self.__class__.__name__
-        print(self._prints)
         for i, attr in enumerate(self._prints):
             if i:
                 string += ', '
@@ -228,28 +225,25 @@ class Operations(BaseOperations, UserDict):
         self.data = {}
         WikiDir('', self, None, inode=ROOT_INODE)
 
-    def getattr(self, inode):
-        print('trying to find inode: ' + str(inode))
+    def getattr(self, inode, ctx=None):
         try:
             entry = self[inode]
-            print('found it: ', entry)
             return entry
         except KeyError:
-            print('Didn\'t find it :(')
             raise FUSEError(errno.ENOENT)
 
-    def setattr(self, inode, attrs):
+    def setattr(self, inode, attr, fields, fh, ctx=None):
         entry = self.getattr(inode)
-        print(attrs.st_size)
-        if attrs.st_size is not None:
-            if entry.st_size < attrs.st_size:
-                entry.bytes = + b'\0' * (attrs.st_size - entry.st_size)
+        print(attr.st_size)
+        if fields.update_size:
+            if entry.st_size < attr.st_size:
+                entry.bytes = + b'\0' * (attr.st_size - entry.st_size)
             else:
-                entry.bytes = entry.bytes[:attrs.st_size]
+                entry.bytes = entry.bytes[:attr.st_size]
 
         return entry
 
-    def lookup(self, parent_inode, name):
+    def lookup(self, parent_inode, name, ctx=None):
         print('lookup')
         name = fsdecode(name)
         print(name, self[parent_inode])
@@ -270,11 +264,11 @@ class Operations(BaseOperations, UserDict):
 
         return self.getattr(inode)
 
-    def access(self, inode, mode, ctx):
+    def access(self, inode, mode, ctx=None):
         print('access', self[inode])
         return True
 
-    def opendir(self, inode):
+    def opendir(self, inode, ctx=None):
         print('opendir')
         print(inode)
         return inode
@@ -293,7 +287,7 @@ class Operations(BaseOperations, UserDict):
         entries = entries[off:]
         return entries
 
-    def open(self, inode, mode):
+    def open(self, inode, mode, ctx=None):
         print('open', self[inode], stat.filemode(mode), mode)
         # TODO: Keep track of amount of times open
         print(inode)
@@ -314,7 +308,7 @@ class Operations(BaseOperations, UserDict):
         file.save()
         return len(buf)
 
-    def create(self, parent_inode, name, mode, flags, ctx):
+    def create(self, parent_inode, name, mode, flags, ctx=None):
         print('create')
         parent = self[parent_inode]
         # TODO: Add lots of checks here
@@ -330,7 +324,7 @@ class Operations(BaseOperations, UserDict):
 
         return (entry.inode, entry)
 
-    def unlink(self, parent_inode, name):
+    def unlink(self, parent_inode, name, ctx=None):
         '''File removal'''
         print('unlink')
         name = fsdecode(name)
@@ -431,7 +425,7 @@ if __name__ == '__main__':
         raise
 
     try:
-        llfuse.main(single=True)
+        llfuse.main(workers=1)
     except:
         llfuse.close()
         raise
