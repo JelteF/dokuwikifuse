@@ -61,5 +61,6 @@ fusermount -u wiki
 - [ ] File and directory syncing after initial sync
 - [x] Creating of documents
 - [x] Removing of documents
+- [x] Creating of directories
 - [ ] Renaming of directories
 - [ ] Attachement support
