@@ -116,7 +116,7 @@ class WikiFile(WikiEntry):
     _prints = WikiEntry._prints + ('pagename',)
 
     def __init__(self, name, *args, **kwargs):
-        logging.info('Creating a file called: ' + name)
+        logging.info('Creating a file called: %s.doku' % name)
         self.name = name
         super().__init__(*args, **kwargs)
         self.update_modified()
