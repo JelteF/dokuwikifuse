@@ -333,6 +333,10 @@ class Operations(BaseOperations, UserDict):
         entry = parent.children[name]
         entry.delete()
 
+    def mkdir(self, parent_inode, name, mode, ctx):
+        print('mkdir')
+        return WikiDir(name.decode(), self, self[parent_inode])
+
 '''
     def release(self, inode):
         print('release')
@@ -368,10 +372,6 @@ class Operations(BaseOperations, UserDict):
 
     def link(self, *args, **kwargs):
         print('link')
-        pass
-
-    def mkdir(self, *args, **kwargs):
-        print('mkdir')
         pass
 
     def mknod(self, *args, **kwargs):
