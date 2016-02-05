@@ -238,7 +238,7 @@ class WikiDir(WikiEntry):
 
     def _refresh_children(self):
         pages = self.ops.dw.pages.list(self.path, depth=self.depth + 2)
-        attachments = self.ops.dw.medias.list(self.path, depth=self.depth + 1)
+        attachments = self.ops.dw.medias.list(self.path, depth=self.depth)
         self._children = {}
 
         for p in pages:
