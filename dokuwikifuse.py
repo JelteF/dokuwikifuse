@@ -156,8 +156,8 @@ class WikiFile(WikiEntry):
 
     @bytes.setter
     def bytes(self, value):
-        logging.info('setting bytes')
-        logging.info(value)
+        logging.debug('setting bytes')
+        logging.debug(value)
         self.text = value.decode('utf8')
         self.st_size = len(value)
 
@@ -368,7 +368,7 @@ class Operations(BaseOperations, UserDict):
         if name.endswith('.doku'):
             name = name[:-5]  # Remove .doku extension from filename
             entry = WikiFile(name, self, parent)
-        elif '.' not in name or name.endswith('~'):
+        elif '.' not in name or name.endswith('~') or name.startswith('.'):
             # Raise read only filesystem error when writing files without an
             # extension and other temporary files
             # TODO: make the filesystem writethrough for these files
@@ -387,6 +387,7 @@ class Operations(BaseOperations, UserDict):
         parent = self[parent_inode]
 
         entry = parent.children[name]
+        logging.info('Deleting %s from wiki', name)
         entry.delete()
 
     def mkdir(self, parent_inode, name, mode, ctx):
