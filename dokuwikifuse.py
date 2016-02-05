@@ -116,7 +116,7 @@ class WikiFile(WikiEntry):
     _prints = WikiEntry._prints + ('pagename',)
 
     def __init__(self, name, *args, **kwargs):
-        logging.info('Creating a file called: %s.doku' % name)
+        logging.info('Creating a dokuwiki file called: %s.doku' % name)
         self.name = name
         super().__init__(*args, **kwargs)
         self.update_modified()
@@ -176,10 +176,10 @@ class WikiFile(WikiEntry):
         del self.parent._children[self.filename]
 
 class WikiAttachment(WikiEntry):
-    _bytes = None
+    _bytes = b''
 
     def __init__(self, name, *args, **kwargs):
-        logging.info('Creating a file called: %s' % name)
+        logging.info('Creating an attachment file called: %s' % name)
         # TODO: Add check that file has no .doku extension
         self.name = name
         super().__init__(*args, **kwargs)
@@ -191,6 +191,8 @@ class WikiAttachment(WikiEntry):
     @classmethod
     def from_wiki_data(cls, wiki_data, *args, **kwargs):
         self = cls(wiki_data['file'], *args, **kwargs)
+        # To make sure they are refreshed when read the first time
+        self._bytes = None
 
         self.modified = wiki_data['mtime']
 
@@ -207,13 +209,19 @@ class WikiAttachment(WikiEntry):
     def _refresh_bytes(self):
         self._bytes = self.ops.dw.medias.get(self.doku_path)
 
+    @bytes.setter
+    def bytes(self, value):
+        self._bytes = value
+
     @property
     def doku_path(self):
         return ':'.join(self.parents + [self.name])
 
     def save(self):
-        # self.ops.dw.medias.set(self.bytes, overwrite=True)
-        pass
+        self.ops.dw.medias.set(self.doku_path, self.bytes, overwrite=True)
+
+    def delete(self):
+        self.ops.dw.medias.delete(self.doku_path)
 
 
 
@@ -268,14 +276,17 @@ class Operations(BaseOperations, UserDict):
         WikiDir('', self, None, inode=ROOT_INODE)
 
     def getattr(self, inode, ctx=None):
+        logging.debug('getattr %s', inode)
         try:
+            logging.debug('found')
             entry = self[inode]
             return entry
         except KeyError:
+            logging.debug('not found')
             raise FUSEError(errno.ENOENT)
 
     def setattr(self, inode, attr, fields, fh, ctx=None):
-        logging.debug('setattr', inode, attr, fields)
+        logging.debug('setattr %s %s %s', inode, attr, fields)
         entry = self.getattr(inode)
         if fields.update_size:
             if entry.st_size < attr.st_size:
@@ -286,33 +297,35 @@ class Operations(BaseOperations, UserDict):
         return entry
 
     def lookup(self, parent_inode, name, ctx=None):
-        logging.debug('lookup')
+        logging.debug('lookup %s', name)
         name = fsdecode(name)
         if name == '.':
             inode = parent_inode
         elif name == '..':
             inode = ROOT_INODE
         elif name.startswith('.'):
+            logging.debug('not found')
             raise FUSEError(errno.ENOENT)
         else:
             parent = self[parent_inode]
             try:
                 inode = parent.children[name].inode
             except KeyError:
+                logging.debug('not found')
                 raise FUSEError(errno.ENOENT)
 
         return self.getattr(inode)
 
     def access(self, inode, mode, ctx=None):
-        logging.debug('access', self[inode])
+        logging.debug('access %s', self[inode])
         return True
 
     def opendir(self, inode, ctx=None):
-        logging.debug('opendir', inode)
+        logging.debug('opendir %s', inode)
         return inode
 
     def readdir(self, inode, off):
-        logging.debug('readdir', inode, off)
+        logging.debug('readdir %s %s', inode, off)
         # pages = self.dw.pages.list(depth=1)
         # print(pages)
         wiki_dir = self[inode]
@@ -325,17 +338,18 @@ class Operations(BaseOperations, UserDict):
         return entries
 
     def open(self, inode, mode, ctx=None):
-        logging.debug('open', self[inode], stat.filemode(mode), mode)
+        logging.debug('open %s %s %s', self[inode], stat.filemode(mode), mode)
         # TODO: Keep track of amount of times open
         return inode
 
     def read(self, inode, offset, length):
-        logging.debug('read', inode, offset, length)
+        logging.debug('read %s %s %s', inode, offset, length)
         return self[inode].bytes[offset: offset + length]
 
     def write(self, inode, offset, buf):
+        logging.debug('write')
         file = self[inode]
-        logging.debug('write', file)
+        logging.info('Writing %s to wiki', file.name)
         original = file.bytes
         new = original[:offset] + buf + original[offset + len(buf):]
         file.bytes = new
@@ -344,24 +358,31 @@ class Operations(BaseOperations, UserDict):
         return len(buf)
 
     def create(self, parent_inode, name, mode, flags, ctx=None):
-        logging.debug('create')
+        logging.debug('create %s %s', parent_inode, name)
         parent = self[parent_inode]
         # TODO: Add lots of checks here
         name = fsdecode(name)
-        if not name.endswith('.doku'):
-            # Raise read only filesystem error when writing non doku files
-            raise FUSEError(errno.EROFS)
-        elif name in parent.children:
+        if name in parent.children:
             raise FUSEError(errno.EEXIST)
 
-        name = name[:-5]  # Remove .doku extension from filename
-        entry = WikiFile(name, self, parent)
+        if name.endswith('.doku'):
+            name = name[:-5]  # Remove .doku extension from filename
+            entry = WikiFile(name, self, parent)
+        elif '.' not in name or name.endswith('~'):
+            # Raise read only filesystem error when writing files without an
+            # extension and other temporary files
+            # TODO: make the filesystem writethrough for these files
+            logging.info('File called %s was not created', name)
+            raise FUSEError(errno.EROFS)
+        else:
+            entry = WikiAttachment(name, self, parent)
+
 
         return (entry.inode, entry)
 
     def unlink(self, parent_inode, name, ctx=None):
         '''File removal'''
-        logging.debug('unlink')
+        logging.debug('unlink %s', name)
         name = fsdecode(name)
         parent = self[parent_inode]
 
@@ -369,7 +390,7 @@ class Operations(BaseOperations, UserDict):
         entry.delete()
 
     def mkdir(self, parent_inode, name, mode, ctx):
-        logging.debug('mkdir')
+        logging.debug('mkdir %s', name)
         return WikiDir(name.decode(), self, self[parent_inode])
 
 '''

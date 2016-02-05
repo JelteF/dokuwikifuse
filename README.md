@@ -64,5 +64,6 @@ fusermount -u wiki
 - [x] Creating of directories
 - [ ] Renaming of directories
 - [x] Attachment read support
-- [ ] Attachment write support
+- [x] Attachment write support
+- [x] Attachment delete support
 - [ ] Map wiki access rights to filesystem access rights
