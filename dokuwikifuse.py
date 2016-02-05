@@ -175,6 +175,47 @@ class WikiFile(WikiEntry):
             self.ops.dw.pages.delete(self.pagename)
         del self.parent._children[self.filename]
 
+class WikiAttachment(WikiEntry):
+    _bytes = None
+
+    def __init__(self, name, *args, **kwargs):
+        logging.info('Creating a file called: %s' % name)
+        # TODO: Add check that file has no .doku extension
+        self.name = name
+        super().__init__(*args, **kwargs)
+        self.update_modified()
+        self.st_size = 0
+
+        self.st_mode |= stat.S_IFREG
+
+    @classmethod
+    def from_wiki_data(cls, wiki_data, *args, **kwargs):
+        self = cls(wiki_data['file'], *args, **kwargs)
+
+        self.modified = wiki_data['mtime']
+
+        self.st_size = wiki_data['size']
+        return self
+
+
+    @property
+    def bytes(self):
+        if self._bytes is None:
+            self._refresh_bytes()
+        return self._bytes
+
+    def _refresh_bytes(self):
+        self._bytes = self.ops.dw.medias.get(self.doku_path)
+
+    @property
+    def doku_path(self):
+        return ':'.join(self.parents + [self.name])
+
+    def save(self):
+        # self.ops.dw.medias.set(self.bytes, overwrite=True)
+        pass
+
+
 
 class WikiDir(WikiEntry):
     _children = None
@@ -197,6 +238,7 @@ class WikiDir(WikiEntry):
 
     def _refresh_children(self):
         pages = self.ops.dw.pages.list(self.path, depth=self.depth + 2)
+        attachments = self.ops.dw.medias.list(self.path, depth=self.depth + 1)
         self._children = {}
 
         for p in pages:
@@ -211,6 +253,9 @@ class WikiDir(WikiEntry):
             else:
                 p['id'] = path[-1]
                 WikiFile.from_wiki_data(p, self.ops, self)
+
+        for a in attachments:
+            WikiAttachment.from_wiki_data(a, self.ops, self)
 
 
 class Operations(BaseOperations, UserDict):
