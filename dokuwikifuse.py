@@ -13,6 +13,7 @@ from collections import UserDict
 from uuid import uuid4
 import time
 import logging
+import argparse
 
 from pprint import pprint  # noqa
 
@@ -20,6 +21,20 @@ try:
     from config import Config
 except:
     from default_config import DefaultConfig as Config
+
+parser = argparse.ArgumentParser(description='A CLI utility to mount dokuwiki'
+                                 ' as a filesystem')
+
+parser.add_argument('--url', help='url of the host running dokuwiki')
+parser.add_argument('--user', '-u', help='user used to log in')
+parser.add_argument('--password', '-p', help='password for the user')
+parser.add_argument('--mountpoint', help='mountpoint for the filesystem')
+parser.add_argument('--chroot', help='directory to chroot into')
+args = parser.parse_args()
+
+for key, val in vars(args).items():
+    if val is not None:
+        setattr(Config, key, val)
 
 if not Config.chroot.endswith('/'):
     Config.chroot += '/'
