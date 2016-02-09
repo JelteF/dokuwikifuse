@@ -270,7 +270,7 @@ class WikiDir(WikiEntry):
 
     def _refresh_children(self):
         pages = self.ops.dw.pages.list(self.path, depth=self.depth + 2)
-        attachments = self.ops.dw.medias.list(self.path, depth=self.depth)
+        attachments = self.ops.dw.medias.list(self.path, depth=self.depth + 2)
         self._children = {}
 
         for p in pages:
@@ -287,7 +287,15 @@ class WikiDir(WikiEntry):
                 WikiFile.from_wiki_data(p, self.ops, self)
 
         for a in attachments:
-            WikiAttachment.from_wiki_data(a, self.ops, self)
+            path = a['id'].split(':')[self.depth:]
+            if len(path) > 1:
+                dir_name = path[0]
+                if dir_name in self._children:
+                    continue
+
+                WikiDir(dir_name, self.ops, self)
+            else:
+                WikiAttachment.from_wiki_data(a, self.ops, self)
 
 
 class Operations(BaseOperations, UserDict):
