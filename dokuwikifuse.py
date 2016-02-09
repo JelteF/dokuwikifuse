@@ -106,13 +106,14 @@ class WikiEntry(EntryAttributes):
 
     @property
     def modified(self):
-        return self.st_mtime
+        return self.st_mtime_ns
 
     @modified.setter
     def modified(self, value):
-        self.st_atime = value
-        self.st_ctime = value
-        self.st_mtime = value
+        value *= 10**9
+        self.st_atime_ns = value
+        self.st_ctime_ns = value
+        self.st_mtime_ns = value
 
     @property
     def depth(self):
