@@ -30,16 +30,25 @@ parser.add_argument('--user', '-u', help='user used to log in')
 parser.add_argument('--password', '-p', help='password for the user')
 parser.add_argument('--mountpoint', help='mountpoint for the filesystem')
 parser.add_argument('--chroot', help='directory to chroot into')
-args = parser.parse_args()
+parser.add_argument('--log', default='INFO', help='loglevel')
+args = vars(parser.parse_args())
 
-for key, val in vars(args).items():
+loglevel = getattr(logging, args['log'].upper(), None)
+
+if not isinstance(loglevel, int):
+    raise ValueError('Invalid log level: %s' % args['log'])
+
+logging.basicConfig(level=loglevel, format='[%(levelname)s] %(message)s')
+
+del args['log']
+
+for key, val in args.items():
     if val is not None:
         setattr(Config, key, val)
 
 if not Config.chroot.endswith('/'):
     Config.chroot += '/'
 
-logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
 
 class WikiEntry(EntryAttributes):
     _prints = ('inode', 'path')
