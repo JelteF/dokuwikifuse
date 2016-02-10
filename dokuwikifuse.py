@@ -57,9 +57,6 @@ dw = DokuWiki(Config.url, Config.user, Config.password)
 class WikiEntry:
     _prints = ('inode', 'path')
 
-    def to_readdir_format(self):
-        return fsencode(self.name), self, self.inode
-
     @property
     def inode(self):
         return self.st_ino
@@ -187,32 +184,23 @@ class WikiAttachment(File, WikiEntry):
         dw.medias.delete(self.doku_path)
 
 
-
 class WikiDir(Directory, WikiEntry):
-    _children = None
+    def refresh_children(self):
+        try:
+            pages = dw.pages.list(self.path, depth=self.depth + 2)
+            attachments = dw.medias.list(self.path, depth=self.depth + 2)
+        except http.client.BadStatusLine as e:
+            logging.warning('Trying again because, requesting children of '
+                            '%s failed with: %s', self.name, e)
+            raise FUSEError(errno.EAGAIN)
 
-    @property
-    def children(self):
-        if self._children is None:
-            try:
-                self._refresh_children()
-            except http.client.BadStatusLine as e:
-                logging.warning('Trying again because, requesting children of '
-                                '%s failed with: %s', self.name, e)
-                raise FUSEError(errno.EAGAIN)
-        return self._children
-
-    def _refresh_children(self):
-        pages = dw.pages.list(self.path, depth=self.depth + 2)
-        attachments = dw.medias.list(self.path, depth=self.depth + 2)
-
-        self._children = {}
+        super().refresh_children()
 
         for p in pages:
             path = p['id'].split(':')[self.depth:]
             if len(path) > 1:
                 dir_name = path[0]
-                if dir_name in self._children:
+                if dir_name in self.children:
                     continue
 
                 WikiDir(dir_name, self.fs, self)
@@ -225,7 +213,7 @@ class WikiDir(Directory, WikiEntry):
             path = a['id'].split(':')[self.depth:]
             if len(path) > 1:
                 dir_name = path[0]
-                if dir_name in self._children:
+                if dir_name in self.children:
                     continue
 
                 WikiDir(dir_name, self.fs, self)
@@ -236,16 +224,6 @@ class WikiDir(Directory, WikiEntry):
 class Operations(BaseOperations):
     def __init__(self, *args, **kwargs):
         super().__init__(dir_class=WikiDir, *args, **kwargs)
-
-    def getattr(self, inode, ctx=None):
-        logging.debug('getattr %s', inode)
-        try:
-            logging.debug('found')
-            entry = self.fs[inode]
-            return entry
-        except KeyError:
-            logging.debug('not found')
-            raise FUSEError(errno.ENOENT)
 
     def setattr(self, inode, attr, fields, fh, ctx=None):
         logging.debug('setattr %s %s %s', inode, attr, fields)
@@ -286,21 +264,9 @@ class Operations(BaseOperations):
         logging.debug('opendir %s', inode)
         return inode
 
-    def readdir(self, inode, off):
-        logging.debug('readdir %s %s', inode, off)
-        # pages = self.dw.pages.list(depth=1)
-        # print(pages)
-        wiki_dir = self.fs[inode]
-        wiki_dir.children
-        special_entries = [(fsencode('.'), self.getattr(inode), inode)]
-        entries = [c.to_readdir_format() for c in wiki_dir.children.values()]
-        entries += special_entries
-        entries = sorted(entries)
-        entries = entries[off:]
-        return entries
-
     def open(self, inode, mode, ctx=None):
-        logging.debug('open %s %s %s', self.fs[inode], stat.filemode(mode), mode)
+        logging.debug('open %s %s %s', self.fs[inode], stat.filemode(mode),
+                      mode)
         # TODO: Keep track of amount of times open
         return inode
 
