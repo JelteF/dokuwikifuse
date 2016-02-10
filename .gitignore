@@ -1,5 +1,5 @@
 # Virtualenv
-venv
+/venv*/
 
 # Ignore the wiki directory
 wiki

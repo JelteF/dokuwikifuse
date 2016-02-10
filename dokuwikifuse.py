@@ -15,6 +15,7 @@ from uuid import uuid4
 import time
 import logging
 import argparse
+import http.client
 
 from pprint import pprint  # noqa
 
@@ -102,7 +103,12 @@ class WikiFile(File, WikiEntry):
     @property
     def text(self):
         if self._text is None:
-            self._refresh_text()
+            try:
+                self._refresh_text()
+            except http.client.BadStatusLine as e:
+                logging.warning('Trying again because, requesting %s '
+                                'failed with: %s', self.name, e)
+                raise FUSEError(errno.EAGAIN)
         return self._text
 
     def _refresh_text(self):
@@ -155,7 +161,12 @@ class WikiAttachment(File, WikiEntry):
     @property
     def bytes(self):
         if self._bytes is None:
-            self._refresh_bytes()
+            try:
+                self._refresh_bytes()
+            except http.client.BadStatusLine as e:
+                logging.warning('Trying again because, requesting %s '
+                                'failed with: %s', self.name, e)
+                raise FUSEError(errno.EAGAIN)
         return self._bytes
 
     def _refresh_bytes(self):
@@ -183,12 +194,18 @@ class WikiDir(Directory, WikiEntry):
     @property
     def children(self):
         if self._children is None:
-            self._refresh_children()
+            try:
+                self._refresh_children()
+            except http.client.BadStatusLine as e:
+                logging.warning('Trying again because, requesting children of '
+                                '%s failed with: %s', self.name, e)
+                raise FUSEError(errno.EAGAIN)
         return self._children
 
     def _refresh_children(self):
         pages = dw.pages.list(self.path, depth=self.depth + 2)
         attachments = dw.medias.list(self.path, depth=self.depth + 2)
+
         self._children = {}
 
         for p in pages:
