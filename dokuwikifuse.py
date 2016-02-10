@@ -1,18 +1,13 @@
 import llfuse
 from easyfuse import Operations as BaseOperations
-from llfuse import EntryAttributes, FUSEError, ROOT_INODE
-from easyfuse import Directory, File
+from llfuse import FUSEError, ROOT_INODE
+from easyfuse import Directory, LazyFile
 
 from dokuwiki import DokuWiki
 
 import errno
-import os
-import stat
 
-from os import fsencode, fsdecode
-from collections import UserDict
-from uuid import uuid4
-import time
+from os import fsdecode
 import logging
 import argparse
 import http.client
@@ -54,141 +49,112 @@ if not Config.chroot.endswith('/'):
 
 dw = DokuWiki(Config.url, Config.user, Config.password)
 
+
 class WikiEntry:
-    _prints = ('inode', 'path')
+    @property
+    def full_depth(self):
+        return self.depth + len(Config.chroot.split('/')) - 2
 
     @property
-    def inode(self):
-        return self.st_ino
-
-    @inode.setter
-    def inode(self, value):
-        self.st_ino = value
+    def full_path(self):
+        """The full path of this entry including chroot."""
+        return Config.chroot + self.path.rstrip('/')
 
     @property
-    def depth(self):
-        if self.inode == ROOT_INODE:
-            return len(Config.chroot.split('/')) - 2
-        return self.parent.depth + 1
-
-    @property
-    def path(self):
-        return '/'.join(self.parents + [self.name])
-
-    @property
-    def parents(self):
+    def parents_old(self):
         if self.inode == ROOT_INODE or self.parent.inode == ROOT_INODE:
             # Ignore the last empty string when splitting
             return Config.chroot.split('/')[:-1]
-        return self.parent.parents + [self.parent.name]
+        return self.parent.parents_old + [self.parent.name]
 
 
-class WikiFile(File, WikiEntry):
+class WikiFile(WikiEntry, LazyFile):
     _text = None
-    _prints = WikiEntry._prints + ('pagename',)
+    _prints = LazyFile._prints + ('doku_path',)
 
     @classmethod
     def from_wiki_data(cls, wiki_data, *args, **kwargs):
         self = cls(wiki_data['id'] + '.doku', *args, **kwargs)
+        self.content = None
 
         self.modified = wiki_data['mtime']
 
         self.st_size = wiki_data['size']
         return self
 
+    def refresh_content(self):
+        try:
+            self.content = dw.pages.get(self.doku_path).encode('utf8')
+        except http.client.BadStatusLine as e:
+            logging.warning('Trying again because, requesting %s '
+                            'failed with: %s', self.name, e)
+            raise FUSEError(errno.EAGAIN)
 
     @property
     def text(self):
-        if self._text is None:
-            try:
-                self._refresh_text()
-            except http.client.BadStatusLine as e:
-                logging.warning('Trying again because, requesting %s '
-                                'failed with: %s', self.name, e)
-                raise FUSEError(errno.EAGAIN)
-        return self._text
-
-    def _refresh_text(self):
-        self._text = dw.pages.get(self.pagename)
+        return self.content.decode('utf8')
 
     @text.setter
     def text(self, value):
-        self._text = value
+        self.content = value.encode('utf8')
 
     @property
-    def bytes(self):
-        return self.text.encode('utf8')
-
-    @bytes.setter
-    def bytes(self, value):
-        logging.debug('setting bytes')
-        logging.debug(value)
-        self.text = value.decode('utf8')
-        self.st_size = len(value)
-
-    @property
-    def pagename(self):
-        return ':'.join(self.parents + [self.name.rstrip('.doku')])
+    def doku_path(self):
+        return ':'.join(self.parents_old + [self.name.rstrip('.doku')])
 
     def save(self):
-        dw.pages.set(self.pagename, self.text)
+        super().save()
+        dw.pages.set(self.doku_path, self.text)
 
     def delete(self):
+        super().delete()
         if len(self.text):
             # Don't delete files that are already empty, since a removed page
             # is just an empty page in dokuwiki
-            dw.pages.delete(self.pagename)
-        del self.parent._children[self.name]
+            dw.pages.delete(self.doku_path)
 
-class WikiAttachment(File, WikiEntry):
-    _bytes = b''
+
+class WikiAttachment(WikiEntry, LazyFile):
+    _content = b''
 
     @classmethod
     def from_wiki_data(cls, wiki_data, *args, **kwargs):
         self = cls(wiki_data['file'], *args, **kwargs)
         # To make sure they are refreshed when read the first time
-        self._bytes = None
+        self.content = None
 
         self.modified = wiki_data['mtime']
 
         self.st_size = wiki_data['size']
         return self
 
-
-    @property
-    def bytes(self):
-        if self._bytes is None:
-            try:
-                self._refresh_bytes()
-            except http.client.BadStatusLine as e:
-                logging.warning('Trying again because, requesting %s '
-                                'failed with: %s', self.name, e)
-                raise FUSEError(errno.EAGAIN)
-        return self._bytes
-
-    def _refresh_bytes(self):
-        self._bytes = dw.medias.get(self.doku_path)
-
-    @bytes.setter
-    def bytes(self, value):
-        self._bytes = value
+    def refresh_content(self):
+        try:
+            self._content = dw.medias.get(self.doku_path)
+        except http.client.BadStatusLine as e:
+            logging.warning('Trying again because, requesting %s '
+                            'failed with: %s', self.name, e)
+            raise FUSEError(errno.EAGAIN)
 
     @property
     def doku_path(self):
-        return ':'.join(self.parents + [self.name])
+        return ':'.join(self.parents_old + [self.name])
 
     def save(self):
-        dw.medias.set(self.doku_path, self.bytes, overwrite=True)
+        super().save()
+        dw.medias.set(self.doku_path, self.content, overwrite=True)
 
     def delete(self):
+        super().delete()
         dw.medias.delete(self.doku_path)
 
 
-class WikiDir(Directory, WikiEntry):
+class WikiDir(WikiEntry, Directory):
     def refresh_children(self):
         try:
-            pages = dw.pages.list(self.path, depth=self.depth + 2)
-            attachments = dw.medias.list(self.path, depth=self.depth + 2)
+            pages = dw.pages.list(self.full_path, depth=self.full_depth + 2)
+            attachments = dw.medias.list(self.full_path,
+                                         depth=self.full_depth + 2)
         except http.client.BadStatusLine as e:
             logging.warning('Trying again because, requesting children of '
                             '%s failed with: %s', self.name, e)
@@ -197,7 +163,7 @@ class WikiDir(Directory, WikiEntry):
         super().refresh_children()
 
         for p in pages:
-            path = p['id'].split(':')[self.depth:]
+            path = p['id'].split(':')[self.full_depth:]
             if len(path) > 1:
                 dir_name = path[0]
                 if dir_name in self.children:
@@ -210,7 +176,7 @@ class WikiDir(Directory, WikiEntry):
                 WikiFile.from_wiki_data(p, self.fs, self)
 
         for a in attachments:
-            path = a['id'].split(':')[self.depth:]
+            path = a['id'].split(':')[self.full_depth:]
             if len(path) > 1:
                 dir_name = path[0]
                 if dir_name in self.children:
@@ -225,101 +191,15 @@ class Operations(BaseOperations):
     def __init__(self, *args, **kwargs):
         super().__init__(dir_class=WikiDir, *args, **kwargs)
 
-    def setattr(self, inode, attr, fields, fh, ctx=None):
-        logging.debug('setattr %s %s %s', inode, attr, fields)
-        entry = self.getattr(inode)
-        if fields.update_size:
-            if entry.st_size < attr.st_size:
-                entry.bytes = + b'\0' * (attr.st_size - entry.st_size)
-            else:
-                entry.bytes = entry.bytes[:attr.st_size]
+    def illegal_filename(self, name):
+        # Files that start with a dot, without an extension and other
+        # temporary files
+        return name.startswith('.') or '.' not in name or name.endswith('~')
 
-        return entry
-
-    def lookup(self, parent_inode, name, ctx=None):
-        logging.debug('lookup %s', name)
-        name = fsdecode(name)
-        if name == '.':
-            inode = parent_inode
-        elif name == '..':
-            inode = ROOT_INODE
-        elif name.startswith('.'):
-            logging.debug('not found')
-            raise FUSEError(errno.ENOENT)
-        else:
-            parent = self.fs[parent_inode]
-            try:
-                inode = parent.children[name].inode
-            except KeyError:
-                logging.debug('not found')
-                raise FUSEError(errno.ENOENT)
-
-        return self.getattr(inode)
-
-    def access(self, inode, mode, ctx=None):
-        logging.debug('access %s', self.fs[inode])
-        return True
-
-    def opendir(self, inode, ctx=None):
-        logging.debug('opendir %s', inode)
-        return inode
-
-    def open(self, inode, mode, ctx=None):
-        logging.debug('open %s %s %s', self.fs[inode], stat.filemode(mode),
-                      mode)
-        # TODO: Keep track of amount of times open
-        return inode
-
-    def read(self, inode, offset, length):
-        logging.debug('read %s %s %s', inode, offset, length)
-        return self.fs[inode].bytes[offset: offset + length]
-
-    def write(self, inode, offset, buf):
-        logging.debug('write')
-        file = self.fs[inode]
-        logging.info('Writing %s to wiki', file.name)
-        original = file.bytes
-        new = original[:offset] + buf + original[offset + len(buf):]
-        file.bytes = new
-        file.update_modified()
-        file.save()
-        return len(buf)
-
-    def create(self, parent_inode, name, mode, flags, ctx=None):
-        logging.debug('create %s %s', parent_inode, name)
-        parent = self.fs[parent_inode]
-        # TODO: Add lots of checks here
-        name = fsdecode(name)
-        if name in parent.children:
-            raise FUSEError(errno.EEXIST)
-
+    def get_file_class(self, name):
         if name.endswith('.doku'):
-            entry = WikiFile(name, self, parent)
-        elif '.' not in name or name.endswith('~') or name.startswith('.'):
-            # Raise read only filesystem error when writing files without an
-            # extension and other temporary files
-            # TODO: make the filesystem writethrough for these files
-            logging.info('File called %s was not created', name)
-            raise FUSEError(errno.EROFS)
-        else:
-            entry = WikiAttachment(name, self, parent)
-
-
-        return (entry.inode, entry)
-
-    def unlink(self, parent_inode, name, ctx=None):
-        '''File removal'''
-        logging.debug('unlink %s', name)
-        name = fsdecode(name)
-        parent = self.fs[parent_inode]
-
-        entry = parent.children[name]
-        logging.info('Deleting %s from wiki', name)
-        entry.delete()
-
-    def mkdir(self, parent_inode, name, mode, ctx):
-        logging.debug('mkdir %s', name)
-        return WikiDir(name.decode(), self, self.fs[parent_inode])
+            return WikiFile
+        return WikiAttachment
 
 '''
     def release(self, inode):
@@ -328,10 +208,6 @@ class Operations(BaseOperations):
 
     def releasedir(self, inode):
         logging.debug('releasedir')
-        pass
-
-    def rmdir(self, inode):
-        logging.debug('rmdir')
         pass
 
     def forget(self, *args, **kwargs):
