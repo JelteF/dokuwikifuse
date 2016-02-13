@@ -1,7 +1,7 @@
 import llfuse
 from easyfuse import Operations as BaseOperations
 from llfuse import FUSEError, ROOT_INODE
-from easyfuse import Directory, LazyFile
+from easyfuse import Directory, File
 
 from dokuwiki import DokuWiki
 
@@ -68,9 +68,9 @@ class WikiEntry:
         return self.parent.parents_old + [self.parent.name]
 
 
-class WikiFile(WikiEntry, LazyFile):
+class WikiFile(WikiEntry, File):
     _text = None
-    _prints = LazyFile._prints + ('doku_path',)
+    _prints = File._prints + ('doku_path',)
 
     @classmethod
     def from_wiki_data(cls, wiki_data, *args, **kwargs):
@@ -114,7 +114,7 @@ class WikiFile(WikiEntry, LazyFile):
             dw.pages.delete(self.doku_path)
 
 
-class WikiAttachment(WikiEntry, LazyFile):
+class WikiAttachment(WikiEntry, File):
     _content = b''
 
     @classmethod
