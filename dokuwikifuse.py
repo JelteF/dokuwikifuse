@@ -81,12 +81,7 @@ class WikiFile(WikiEntry, File):
         return self
 
     def refresh_content(self):
-        try:
-            self.content = dw.pages.get(self.doku_path).encode('utf8')
-        except Exception as e:
-            logging.error('Something went wrong when requesting %s: %s',
-                          self.path, e)
-            raise FUSEError(errno.EAGAIN)
+        self.content = dw.pages.get(self.doku_path).encode('utf8')
 
     @property
     def text(self):
@@ -109,12 +104,7 @@ class WikiFile(WikiEntry, File):
         if len(self.text):
             # Don't delete files that are already empty, since a removed page
             # is just an empty page in dokuwiki
-            try:
-                dw.pages.delete(self.doku_path)
-            except Exception as e:
-                logging.error('Something went wrong when deleting %s: %s',
-                              self.path, e)
-                raise FUSEError(errno.EAGAIN)
+            dw.pages.delete(self.doku_path)
 
 
 class WikiAttachment(WikiEntry, File):
@@ -132,12 +122,7 @@ class WikiAttachment(WikiEntry, File):
         return self
 
     def refresh_content(self):
-        try:
-            self._content = dw.medias.get(self.doku_path)
-        except Exception as e:
-            logging.error('Something went wrong when requesting %s: %s',
-                          self.path, e)
-            raise FUSEError(errno.EAGAIN)
+        self._content = dw.medias.get(self.doku_path)
 
     @property
     def doku_path(self):
@@ -145,12 +130,7 @@ class WikiAttachment(WikiEntry, File):
 
     def save(self):
         super().save()
-        try:
-            dw.medias.set(self.doku_path, self.content, overwrite=True)
-        except Exception as e:
-            logging.error('Something went wrong when saving %s: %s',
-                          self.path, e)
-            raise FUSEError(errno.EAGAIN)
+        dw.medias.set(self.doku_path, self.content, overwrite=True)
 
     def delete(self):
         super().delete()
@@ -159,15 +139,9 @@ class WikiAttachment(WikiEntry, File):
 
 class WikiDir(WikiEntry, Directory):
     def refresh_children(self):
-        try:
-            pages = dw.pages.list(self.full_path, depth=self.full_depth + 2)
-            attachments = dw.medias.list(self.full_path,
-                                         depth=self.full_depth + 2)
-        except Exception as e:
-            logging.error('Something went wrong when requesting the children '
-                          'of %s: %s', self.path, e)
-            raise FUSEError(errno.EAGAIN)
-
+        pages = dw.pages.list(self.full_path, depth=self.full_depth + 2)
+        attachments = dw.medias.list(self.full_path,
+                                     depth=self.full_depth + 2)
         super().refresh_children()
 
         for p in pages:
