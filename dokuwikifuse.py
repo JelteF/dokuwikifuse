@@ -7,10 +7,8 @@ from dokuwiki import DokuWiki
 
 import errno
 
-from os import fsdecode
 import logging
 import argparse
-import http.client
 
 from pprint import pprint  # noqa
 
@@ -85,9 +83,9 @@ class WikiFile(WikiEntry, File):
     def refresh_content(self):
         try:
             self.content = dw.pages.get(self.doku_path).encode('utf8')
-        except http.client.BadStatusLine as e:
-            logging.warning('Trying again because, requesting %s '
-                            'failed with: %s', self.name, e)
+        except Exception as e:
+            logging.error('Something went wrong when requesting %s: %s',
+                          self.path, e)
             raise FUSEError(errno.EAGAIN)
 
     @property
@@ -111,7 +109,12 @@ class WikiFile(WikiEntry, File):
         if len(self.text):
             # Don't delete files that are already empty, since a removed page
             # is just an empty page in dokuwiki
-            dw.pages.delete(self.doku_path)
+            try:
+                dw.pages.delete(self.doku_path)
+            except Exception as e:
+                logging.error('Something went wrong when deleting %s: %s',
+                              self.path, e)
+                raise FUSEError(errno.EAGAIN)
 
 
 class WikiAttachment(WikiEntry, File):
@@ -131,9 +134,9 @@ class WikiAttachment(WikiEntry, File):
     def refresh_content(self):
         try:
             self._content = dw.medias.get(self.doku_path)
-        except http.client.BadStatusLine as e:
-            logging.warning('Trying again because, requesting %s '
-                            'failed with: %s', self.name, e)
+        except Exception as e:
+            logging.error('Something went wrong when requesting %s: %s',
+                          self.path, e)
             raise FUSEError(errno.EAGAIN)
 
     @property
@@ -142,7 +145,12 @@ class WikiAttachment(WikiEntry, File):
 
     def save(self):
         super().save()
-        dw.medias.set(self.doku_path, self.content, overwrite=True)
+        try:
+            dw.medias.set(self.doku_path, self.content, overwrite=True)
+        except Exception as e:
+            logging.error('Something went wrong when saving %s: %s',
+                          self.path, e)
+            raise FUSEError(errno.EAGAIN)
 
     def delete(self):
         super().delete()
@@ -155,9 +163,9 @@ class WikiDir(WikiEntry, Directory):
             pages = dw.pages.list(self.full_path, depth=self.full_depth + 2)
             attachments = dw.medias.list(self.full_path,
                                          depth=self.full_depth + 2)
-        except http.client.BadStatusLine as e:
-            logging.warning('Trying again because, requesting children of '
-                            '%s failed with: %s', self.name, e)
+        except Exception as e:
+            logging.error('Something went wrong when requesting the children '
+                          'of %s: %s', self.path, e)
             raise FUSEError(errno.EAGAIN)
 
         super().refresh_children()
