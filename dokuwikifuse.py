@@ -1,11 +1,8 @@
-import llfuse
 from easyfuse import Operations as BaseOperations
-from llfuse import FUSEError, ROOT_INODE
-from easyfuse import Directory, File
+from llfuse import ROOT_INODE
+from easyfuse import Directory, File, mount
 
 from dokuwiki import DokuWiki
-
-import errno
 
 import logging
 import argparse
@@ -259,16 +256,4 @@ class Operations(BaseOperations):
 
 
 if __name__ == '__main__':
-    try:
-        llfuse.init(Operations(), Config.mountpoint, ['nonempty',
-                                                      'fsname=tmpfs'])
-    except:
-        llfuse.close()
-        raise
-
-    try:
-        llfuse.main(workers=1)
-    except:
-        llfuse.close()
-        raise
-    llfuse.close()
+    mount(Operations(), Config.mountpoint, {'fsname=dokuwikifs'})
