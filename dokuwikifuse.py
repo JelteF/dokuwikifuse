@@ -151,11 +151,11 @@ class WikiDir(WikiEntry, Directory):
                 if dir_name in self.children:
                     continue
 
-                WikiDir(dir_name, self.fs, self)
+                WikiDir(dir_name, self)
 
             else:
                 p['id'] = path[-1]
-                WikiFile.from_wiki_data(p, self.fs, self)
+                WikiFile.from_wiki_data(p, self)
 
         for a in attachments:
             path = a['id'].split(':')[self.full_depth:]
@@ -164,9 +164,9 @@ class WikiDir(WikiEntry, Directory):
                 if dir_name in self.children:
                     continue
 
-                WikiDir(dir_name, self.fs, self)
+                WikiDir(dir_name, self)
             else:
-                WikiAttachment.from_wiki_data(a, self.fs, self)
+                WikiAttachment.from_wiki_data(a, self)
 
 
 class Operations(BaseOperations):
